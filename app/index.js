@@ -21,6 +21,7 @@ app.get('/api', (req, res) => {
 })
 
 require('./routers/usersRoute')(app)
+require('./routers/productsRoute')(app)
 
 app.listen(port, () => {
   console.log(`listening on port ${port}`)

@@ -21,7 +21,7 @@ exports.login = async (req, res) => {
     )
 
     if (reqLogin.length === 0) {
-      res.status(401).send({ message: 'username or password is wrong' })
+      res.status(401).send({ message: 'Username or password is wrong' })
       return
     }
 
