@@ -22,6 +22,7 @@ app.get('/api', (req, res) => {
 
 require('./routers/usersRoute')(app)
 require('./routers/productsRoute')(app)
+require('./routers/transactionsRoute')(app)
 
 app.listen(port, () => {
   console.log(`listening on port ${port}`)
