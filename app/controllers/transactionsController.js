@@ -1,9 +1,9 @@
 const sqlPromise = require('../helpers/sqlPromise')
-const { getStringDate } = require('../helpers/utils')
+const { getStringDate, verifyJwt } = require('../helpers/utils')
 
 exports.create = async (req, res) => {
   try {
-    const { customer, payment_method, products } = req.body
+    const { customer, payment_method, session, products } = req.body
 
     let sqlProducts = 'SELECT * FROM products WHERE'
     const valuesProducts = []
@@ -34,8 +34,8 @@ exports.create = async (req, res) => {
     })
 
     const createTransaction = await sqlPromise(
-      'INSERT INTO transactions (customer, total, payment_method, status) VALUES (?, ?, ?, 0)',
-      [customer, total, payment_method]
+      'INSERT INTO transactions (customer, total, payment_method, status, session) VALUES (?, ?, ?, 0, ?)',
+      [customer, total, payment_method, session],
     )
     const transaction_id = createTransaction.insertId
 
@@ -50,7 +50,7 @@ exports.create = async (req, res) => {
 
     await sqlPromise(sqlOrder, valuesOrder)
 
-    res.status(200).send({
+    res.status(201).send({
       message: 'Create transaction successful',
       data: {
         id: transaction_id,
@@ -104,6 +104,7 @@ exports.closeTransaction = async (req, res) => {
 exports.readAll = async (req, res) => {
   try {
     const { month, start_date, end_date } = req.query
+    const session = req.session
 
     const now = month ? new Date(month) : new Date()
 
@@ -113,15 +114,27 @@ exports.readAll = async (req, res) => {
     lastDayOfMonth.setMonth(now.getMonth() + 1)
     lastDayOfMonth.setDate(lastDayOfMonth.getDate() - 1)
 
-    const firstDayString = start_date ?? getStringDate(firstDayOfMonth)
-    const lastDayString = end_date ?? getStringDate(lastDayOfMonth)
+    let firstDayString = start_date ?? getStringDate(firstDayOfMonth)
+    firstDayString += ' 00:00:00'
+    let lastDayString = end_date ?? getStringDate(lastDayOfMonth)
+    lastDayString += ' 23:59:59'
 
-    const sql =
-      'SELECT transactions.*, products.id AS product_id, products.name AS product_name, products.price AS product_price, orders.count AS order_count ' +
-      'FROM orders JOIN transactions ON orders.transaction_id = transactions.id JOIN products ON orders.product_id = products.id ' +
-      'WHERE transactions.created_at BETWEEN ? AND ? ORDER BY transactions.id'
+    let sql =
+      'SELECT transactions.*, products.id AS product_id, products.name AS product_name, products.price AS product_price, products.image_url AS product_image_url, orders.count AS order_count ' +
+      'FROM orders JOIN transactions ON orders.transaction_id = transactions.id JOIN products ON orders.product_id = products.id '
 
-    const query = await sqlPromise(sql, [firstDayString, lastDayString])
+    const values = []
+
+    if (session) {
+      sql += 'WHERE transactions.session = ? ORDER BY transactions.id'
+      values.push(session)
+    } else {
+      sql +=
+        'WHERE transactions.created_at BETWEEN ? AND ? ORDER BY transactions.id'
+      values.push(...[firstDayString, lastDayString])
+    }
+
+    const query = await sqlPromise(sql, values)
 
     const data = []
     query.map((item) => {
@@ -131,12 +144,14 @@ exports.readAll = async (req, res) => {
           customer: item.customer,
           total: item.total,
           payment_method: item.payment_method,
+          status: item.status,
           created_at: item.created_at,
           products: [
             {
               id: item.product_id,
               name: item.product_name,
               price: item.product_price,
+              image_url: item.product_image_url,
               count: item.order_count,
             },
           ],
@@ -146,6 +161,7 @@ exports.readAll = async (req, res) => {
           id: item.product_id,
           name: item.product_name,
           price: item.product_price,
+          image_url: item.product_image_url,
           count: item.order_count,
         })
       }
@@ -160,19 +176,32 @@ exports.readAll = async (req, res) => {
 exports.readById = async (req, res) => {
   try {
     const { id } = req.params
+    const session = req.session
 
-    const sql =
-      'SELECT transactions.*, products.id AS product_id, products.name AS product_name, products.price AS product_price, orders.count AS order_count ' +
+    let sql =
+      'SELECT transactions.*, products.id AS product_id, products.name AS product_name, products.price AS product_price, products.image_url AS product_image_url, orders.count AS order_count ' +
       'FROM orders JOIN transactions ON orders.transaction_id = transactions.id JOIN products ON orders.product_id = products.id ' +
       'WHERE transactions.id = ?'
 
-    const query = await sqlPromise(sql, [id])
+    const values = [id]
+    if (session) {
+      sql += ' AND transactions.session = ?'
+      values.push(session)
+    }
+
+    const query = await sqlPromise(sql, values)
+
+    if (query.length === 0) {
+      res.status(404).send({ message: 'Transaction not found' })
+      return
+    }
 
     const data = {
       id: query[0].id,
       customer: query[0].customer,
       total: query[0].total,
       payment_method: query[0].payment_method,
+      status: query[0].status,
       created_at: query[0].created_at,
       products: [],
     }
@@ -182,6 +211,7 @@ exports.readById = async (req, res) => {
         id: item.product_id,
         name: item.product_name,
         price: item.product_price,
+        image_url: item.product_image_url,
         count: item.order_count,
       })
     })
