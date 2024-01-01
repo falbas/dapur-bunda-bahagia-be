@@ -251,7 +251,7 @@ exports.report = async (req, res) => {
     let sqlTransaction =
       'SELECT COUNT(transactions.id) AS transaction_count, SUM(transactions.total) AS transaction_total, MIN(transactions.created_at) AS start_date, MAX(transactions.created_at) AS end_date FROM transactions'
     let sqlProduct =
-      'SELECT products.id AS product_id, products.name AS product_name, products.price AS product_price, products.image_url AS product_image_url, SUM(orders.count) AS order_count, products.price*orders.count AS total ' +
+      'SELECT products.id AS product_id, products.name AS product_name, products.price AS product_price, products.image_url AS product_image_url, SUM(orders.count) AS order_count, products.price*SUM(orders.count) AS total ' +
       'FROM orders JOIN products ON orders.product_id = products.id JOIN transactions ON orders.transaction_id = transactions.id'
     let sqlFilter = ''
     let valuesTransaction = []
