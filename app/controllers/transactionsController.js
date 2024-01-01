@@ -5,6 +5,8 @@ exports.create = async (req, res) => {
   try {
     const { customer, payment_method, session, products } = req.body
 
+    products.sort((a, b) => a.id - b.id)
+
     let sqlProducts = 'SELECT * FROM products WHERE'
     const valuesProducts = []
     products.map((product, i) => {
@@ -12,6 +14,7 @@ exports.create = async (req, res) => {
       sqlProducts += ' id=?'
       valuesProducts.push(product.id)
     })
+    sqlProducts += ' ORDER BY id'
 
     const reqProducts = await sqlPromise(sqlProducts, valuesProducts)
 
@@ -24,14 +27,15 @@ exports.create = async (req, res) => {
 
     let total = 0
     const resProducts = []
-    reqProducts.map((product) => {
-      total += product.price
+    for (let i = 0; i < reqProducts.length; i++) {
+      total += reqProducts[i].price * products[i].count
       resProducts.push({
-        name: product.name,
-        price: product.price,
-        image_url: product.image_url,
+        name: reqProducts[i].name,
+        price: reqProducts[i].price,
+        image_url: reqProducts[i].image_url,
+        count: products[i].count,
       })
-    })
+    }
 
     const createTransaction = await sqlPromise(
       'INSERT INTO transactions (customer, total, payment_method, status, session) VALUES (?, ?, ?, 0, ?)',
@@ -235,6 +239,68 @@ exports.readById = async (req, res) => {
     })
 
     res.status(200).send({ data })
+  } catch (err) {
+    res.status(500).send({ message: err.message })
+  }
+}
+
+exports.report = async (req, res) => {
+  try {
+    const { month, start_date, end_date, status } = req.query
+
+    let sqlTransaction =
+      'SELECT COUNT(transactions.id) AS transaction_count, SUM(transactions.total) AS transaction_total, MIN(transactions.created_at) AS start_date, MAX(transactions.created_at) AS end_date FROM transactions'
+    let sqlProduct =
+      'SELECT products.id AS product_id, products.name AS product_name, products.price AS product_price, products.image_url AS product_image_url, SUM(orders.count) AS order_count, products.price*orders.count AS total ' +
+      'FROM orders JOIN products ON orders.product_id = products.id JOIN transactions ON orders.transaction_id = transactions.id'
+    let sqlFilter = ''
+    let valuesTransaction = []
+
+    if (status) {
+      sqlFilter += ' WHERE transactions.status = ?'
+      valuesTransaction.push(status)
+    }
+
+    if (month || start_date || end_date) {
+      const now = month ? new Date(month) : new Date()
+
+      const firstDayOfMonth = new Date(`${now.getFullYear()}`)
+      firstDayOfMonth.setMonth(now.getMonth())
+      const lastDayOfMonth = new Date(`${now.getFullYear()}`)
+      lastDayOfMonth.setMonth(now.getMonth() + 1)
+      lastDayOfMonth.setDate(lastDayOfMonth.getDate() - 1)
+
+      let firstDayString = start_date ?? getStringDate(firstDayOfMonth)
+      firstDayString += ' 00:00:00'
+      let lastDayString = end_date ?? getStringDate(lastDayOfMonth)
+      lastDayString += ' 23:59:59'
+
+      sqlFilter += status ? ' AND' : ' WHERE'
+
+      sqlFilter += ' transactions.created_at BETWEEN ? AND ?'
+      valuesTransaction.push(...[firstDayString, lastDayString])
+    }
+    sqlTransaction += sqlFilter
+    sqlProduct += sqlFilter + ' GROUP BY products.id'
+
+    const reqTransactions = await sqlPromise(sqlTransaction, valuesTransaction)
+    const reqProducts = await sqlPromise(sqlProduct, valuesTransaction)
+
+    const report = {
+      transaction_count: reqTransactions[0].transaction_count,
+      transaction_total: reqTransactions[0].transaction_total,
+      start_date: reqTransactions[0].start_date,
+      end_date: reqTransactions[0].end_date,
+      product_sold: 0,
+      products: [],
+    }
+
+    reqProducts.map((product) => {
+      report.products.push(product)
+      report.product_sold += product.order_count
+    })
+
+    res.status(200).send({ data: report })
   } catch (err) {
     res.status(500).send({ message: err.message })
   }

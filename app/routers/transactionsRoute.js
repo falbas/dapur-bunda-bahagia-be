@@ -7,6 +7,7 @@ module.exports = (app) => {
   r.post('/confirm-order/:id', auth, transactions.confirmOrder)
   r.post('/confirm-payment/:id', auth, transactions.confirmPayment)
   r.post('/close-transaction/:id', auth, transactions.closeTransaction)
+  r.get('/report', auth, transactions.report)
   r.get('/', sessionAuth, transactions.readAll)
   r.get('/:id', sessionAuth, transactions.readById)
 
