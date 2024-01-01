@@ -246,19 +246,22 @@ exports.readById = async (req, res) => {
 
 exports.report = async (req, res) => {
   try {
-    const { month, start_date, end_date, status } = req.query
+    const { month, start_date, end_date, status, summary } = req.query
 
     let sqlTransaction =
-      'SELECT COUNT(transactions.id) AS transaction_count, SUM(transactions.total) AS transaction_total, MIN(transactions.created_at) AS start_date, MAX(transactions.created_at) AS end_date FROM transactions'
+      'SELECT transactions.status, transactions.total FROM transactions'
     let sqlProduct =
-      'SELECT products.id AS product_id, products.name AS product_name, products.price AS product_price, products.image_url AS product_image_url, SUM(orders.count) AS order_count, products.price*SUM(orders.count) AS total ' +
-      'FROM orders JOIN products ON orders.product_id = products.id JOIN transactions ON orders.transaction_id = transactions.id'
+      'SELECT products.status, SUM(orders.count) AS order_count ' +
+      'FROM orders RIGHT JOIN products ON orders.product_id = products.id LEFT JOIN transactions ON orders.transaction_id = transactions.id'
+    let sqlAllProducts =
+      'SELECT products.*, SUM(orders.count) AS order_count ' +
+      'FROM orders RIGHT JOIN products ON orders.product_id = products.id LEFT JOIN transactions ON orders.transaction_id = transactions.id'
     let sqlFilter = ''
-    let valuesTransaction = []
+    let values = []
 
     if (status) {
       sqlFilter += ' WHERE transactions.status = ?'
-      valuesTransaction.push(status)
+      values.push(status)
     }
 
     if (month || start_date || end_date) {
@@ -278,27 +281,49 @@ exports.report = async (req, res) => {
       sqlFilter += status ? ' AND' : ' WHERE'
 
       sqlFilter += ' transactions.created_at BETWEEN ? AND ?'
-      valuesTransaction.push(...[firstDayString, lastDayString])
+      values.push(...[firstDayString, lastDayString])
     }
     sqlTransaction += sqlFilter
     sqlProduct += sqlFilter + ' GROUP BY products.id'
+    sqlAllProducts += sqlFilter + ' GROUP BY products.id'
 
-    const reqTransactions = await sqlPromise(sqlTransaction, valuesTransaction)
-    const reqProducts = await sqlPromise(sqlProduct, valuesTransaction)
+    const reqTransactions = await sqlPromise(sqlTransaction, values)
+    const reqProducts = await sqlPromise(sqlProduct, values)
+    const reqAllProducts = !summary
+      ? await sqlPromise(sqlAllProducts, values)
+      : []
+
+    const transaction = {
+      transaction_active: 0,
+      transaction_done: 0,
+      transaction_count: 0,
+      transaction_total: 0,
+    }
+    reqTransactions.map((item) => {
+      transaction.transaction_active += item.status < 3 ? 1 : 0
+      transaction.transaction_done += item.status === 3 ? 1 : 0
+      transaction.transaction_count += 1
+      transaction.transaction_total += item.total
+    })
+
+    const product = {
+      product_sold: 0,
+      product_count: 0,
+      product_active: 0,
+      product_inactive: 0,
+    }
+    reqProducts.map((item) => {
+      product.product_sold += item.order_count
+      product.product_count += 1
+      product.product_active += item.status === 1 ? 1 : 0
+      product.product_inactive += item.status === 0 ? 1 : 0
+    })
 
     const report = {
-      transaction_count: reqTransactions[0].transaction_count,
-      transaction_total: reqTransactions[0].transaction_total,
-      start_date: reqTransactions[0].start_date,
-      end_date: reqTransactions[0].end_date,
-      product_sold: 0,
-      products: [],
+      ...transaction,
+      ...product,
+      products: reqAllProducts.length ? reqAllProducts : undefined,
     }
-
-    reqProducts.map((product) => {
-      report.products.push(product)
-      report.product_sold += product.order_count
-    })
 
     res.status(200).send({ data: report })
   } catch (err) {
