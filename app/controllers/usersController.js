@@ -1,6 +1,7 @@
 const { createHmac } = require('node:crypto')
 const jwt = require('jsonwebtoken')
 const sqlPromise = require('../helpers/sqlPromise')
+const { verifyJwt } = require('../helpers/utils')
 
 exports.login = async (req, res) => {
   try {
@@ -17,7 +18,7 @@ exports.login = async (req, res) => {
 
     const reqLogin = await sqlPromise(
       'SELECT * FROM admins WHERE username = ? AND password = ?',
-      [username, encpass]
+      [username, encpass],
     )
 
     if (reqLogin.length === 0) {
@@ -30,13 +31,23 @@ exports.login = async (req, res) => {
       process.env.TOKEN_KEY,
       {
         expiresIn: process.env.TOKEN_EXP,
-      }
+      },
     )
 
     res.send({
       message: 'Login successful',
       token: token,
     })
+  } catch (err) {
+    res.status(500).send({ message: err.message })
+  }
+}
+
+exports.verify = async (req, res) => {
+  try {
+    const token = verifyJwt(req.token)
+
+    res.send(token)
   } catch (err) {
     res.status(500).send({ message: err.message })
   }

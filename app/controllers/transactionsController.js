@@ -103,36 +103,52 @@ exports.closeTransaction = async (req, res) => {
 
 exports.readAll = async (req, res) => {
   try {
-    const { month, start_date, end_date } = req.query
+    const { month, start_date, end_date, status } = req.query
     const session = req.session
-
-    const now = month ? new Date(month) : new Date()
-
-    const firstDayOfMonth = new Date(`${now.getFullYear()}`)
-    firstDayOfMonth.setMonth(now.getMonth())
-    const lastDayOfMonth = new Date(`${now.getFullYear()}`)
-    lastDayOfMonth.setMonth(now.getMonth() + 1)
-    lastDayOfMonth.setDate(lastDayOfMonth.getDate() - 1)
-
-    let firstDayString = start_date ?? getStringDate(firstDayOfMonth)
-    firstDayString += ' 00:00:00'
-    let lastDayString = end_date ?? getStringDate(lastDayOfMonth)
-    lastDayString += ' 23:59:59'
 
     let sql =
       'SELECT transactions.*, products.id AS product_id, products.name AS product_name, products.price AS product_price, products.image_url AS product_image_url, orders.count AS order_count ' +
-      'FROM orders JOIN transactions ON orders.transaction_id = transactions.id JOIN products ON orders.product_id = products.id '
-
+      'FROM orders JOIN transactions ON orders.transaction_id = transactions.id JOIN products ON orders.product_id = products.id'
     const values = []
 
-    if (session) {
-      sql += 'WHERE transactions.session = ? ORDER BY transactions.id'
-      values.push(session)
-    } else {
-      sql +=
-        'WHERE transactions.created_at BETWEEN ? AND ? ORDER BY transactions.id'
-      values.push(...[firstDayString, lastDayString])
+    const setFilter = () => {
+      if (session) {
+        sql += ' WHERE transactions.session = ?'
+        values.push(session)
+        return
+      }
+
+      if (month || start_date || end_date) {
+        const now = month ? new Date(month) : new Date()
+
+        const firstDayOfMonth = new Date(`${now.getFullYear()}`)
+        firstDayOfMonth.setMonth(now.getMonth())
+        const lastDayOfMonth = new Date(`${now.getFullYear()}`)
+        lastDayOfMonth.setMonth(now.getMonth() + 1)
+        lastDayOfMonth.setDate(lastDayOfMonth.getDate() - 1)
+
+        let firstDayString = start_date ?? getStringDate(firstDayOfMonth)
+        firstDayString += ' 00:00:00'
+        let lastDayString = end_date ?? getStringDate(lastDayOfMonth)
+        lastDayString += ' 23:59:59'
+
+        sql += ' WHERE transactions.created_at BETWEEN ? AND ?'
+        values.push(...[firstDayString, lastDayString])
+      }
+
+      if (status) {
+        sql += ' AND ('
+        status.split(',').map((item, key) => {
+          if (key !== 0) sql += ' OR'
+          sql += ' transactions.status = ?'
+          values.push(item)
+        })
+        sql += ' )'
+      }
     }
+    setFilter()
+
+    sql += ' ORDER BY transactions.id DESC'
 
     const query = await sqlPromise(sql, values)
 
@@ -146,6 +162,7 @@ exports.readAll = async (req, res) => {
           payment_method: item.payment_method,
           status: item.status,
           created_at: item.created_at,
+          updated_at: item.updated_at,
           products: [
             {
               id: item.product_id,
@@ -203,6 +220,7 @@ exports.readById = async (req, res) => {
       payment_method: query[0].payment_method,
       status: query[0].status,
       created_at: query[0].created_at,
+      updated_at: query[0].updated_at,
       products: [],
     }
 

@@ -17,7 +17,7 @@ exports.create = async (req, res) => {
 
     const query = await sqlPromise(
       'INSERT INTO products (category_id, name, price, image_url, status) VALUES (?,?,?,?,?)',
-      [category_id, name, price, image_url, status]
+      [category_id, name, price, image_url, status],
     )
 
     res.status(201).send({
@@ -38,7 +38,19 @@ exports.create = async (req, res) => {
 
 exports.readAll = async (req, res) => {
   try {
-    const query = await sqlPromise('SELECT * FROM products')
+    const { status } = req.query
+
+    let sql =
+      'SELECT products.*, categories.name AS category FROM products JOIN categories ON products.category_id = categories.id'
+    const values = []
+
+    if (status) {
+      sql += ' WHERE products.status = ?'
+      values.push(status)
+    }
+    sql += ' ORDER BY products.id'
+
+    const query = await sqlPromise(sql, values)
 
     res.status(200).send({
       data: query,
@@ -52,7 +64,10 @@ exports.readById = async (req, res) => {
   try {
     const { id } = req.params
 
-    const query = await sqlPromise('SELECT * FROM products WHERE id = ?', [id])
+    const query = await sqlPromise(
+      'SELECT products.*, categories.name AS category FROM products JOIN categories ON products.category_id = categories.id WHERE products.id = ?',
+      [id],
+    )
 
     if (query.length === 0) {
       res.status(404).send({ message: 'Product not found' })
