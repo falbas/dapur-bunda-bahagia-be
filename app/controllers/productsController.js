@@ -38,7 +38,7 @@ exports.create = async (req, res) => {
 
 exports.readAll = async (req, res) => {
   try {
-    const { status } = req.query
+    const { status, category } = req.query
 
     let sql =
       'SELECT products.*, categories.name AS category FROM products JOIN categories ON products.category_id = categories.id'
@@ -47,6 +47,11 @@ exports.readAll = async (req, res) => {
     if (status) {
       sql += ' WHERE products.status = ?'
       values.push(status)
+    }
+    if (category) {
+      sql += status ? ' AND' : ' WHERE'
+      sql += ' products.category_id = ?'
+      values.push(category)
     }
     sql += ' ORDER BY products.id'
 
